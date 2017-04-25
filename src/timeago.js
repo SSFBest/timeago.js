@@ -22,18 +22,29 @@ function () {
         if (index === 0) return ['just now', 'right now'];
         var unit = indexMapEn[parseInt(index / 2)];
         if (number > 1) unit += 's';
-        return [number + ' ' + unit + ' ago', 'in ' + number + ' ' + unit];
+        return [number + ' ' + unit + ' ago', 'in ' + number + ' ' + unit,''];
       },
       'zh_CN': function(number, index) {
         if (index === 0) return ['刚刚', '片刻后'];
         var unit = indexMapZh[parseInt(index / 2)];
-        return [number + unit + '前', number + unit + '后'];
+        return [number + unit + '前', number + unit + '后',''];
+      },
+      'temai': function(number, index) {
+        if (index === 0) return ['即将开始','刚结束',''];
+        index=parseInt(index / 2);
+        var unit = indexMapZh[index];
+        if (index === 0) return ['<span>即将开始</span>', '还剩<span>'+number+'</span>'+unit+'钟，快抢','来晚了，<span>已经过期</span>'];
+        if (index === 1) return ['<span>'+number+'</span>'+unit+'后开始', '还剩<span>'+number+'</span>'+unit+'，必须抢','来晚了，<span>已经过期</span>'];
+        if (index === 2) return ['<span>'+number+'</span>'+unit+'后开始', '还剩<span>'+number+'</span>'+unit+',快抢','来晚了，<span>已经过期</span>'];
+        if (index === 3 | index === 4 | index === 5 |index === 6) return ['<span>'+number+'</span>'+unit+'后开始', '剩余<span>'+number+'</span>'+unit+'将过期','来晚了，<span>已经过期</span>'];
+        // return [number + unit + '前', number + unit + '后'];
       }
     },
     // second, minute, hour, day, week, month, year(365 days)
     SEC_ARRAY = [60, 60, 24, 7, 365/7/12, 12],
     SEC_ARRAY_LEN = 6,
-    ATTR_DATETIME = 'datetime',
+    ATTR_STARTTIME = 'starttime',
+    ATTR_ENDTIME = 'endtime',
     ATTR_DATA_TID = 'data-tid',
     timers = {}; // real-time render timers
 
@@ -59,8 +70,18 @@ function () {
     // be sure of no error when locale is not exist.
     locale = locales[locale] ? locale : (locales[defaultLocale] ? defaultLocale : 'en');
     // if (! locales[locale]) locale = defaultLocale;
-    var i = 0,
-      agoin = diff < 0 ? 1 : 0, // timein or timeago
+    var i = 0;
+      // agoin = diff[0] < 0 ? 0 : 1, // timein or timeago
+      if (diff[0]<0){
+        agoin=0;
+        diff=diff[0];
+      }else if(diff[1]<0){
+        agoin=1;
+        diff=diff[1];
+      }else{
+        agoin=2;
+        diff=diff[1]
+      }
       total_sec = diff = Math.abs(diff);
 
     for (; diff >= SEC_ARRAY[i] && i < SEC_ARRAY_LEN; i++) {
@@ -73,9 +94,12 @@ function () {
     return locales[locale](diff, i, total_sec)[agoin].replace('%s', diff);
   }
   // calculate the diff second between date to be formated an now date.
-  function diffSec(date, nowDate) {
+  function diffSec(startdate,enddate, nowDate) {
     nowDate = nowDate ? toDate(nowDate) : new Date();
-    return (nowDate - toDate(date)) / 1000;
+    if (enddate == 'null'|| enddate == 'none'|| enddate == null){
+      return [(nowDate - toDate(startdate)) / 1000,-(nowDate - toDate(startdate)) / 1000];
+    }
+    return [(nowDate - toDate(startdate)) / 1000,(nowDate - toDate(enddate)) / 1000];
   }
   /**
    * nextInterval: calculate the next interval time.
@@ -98,9 +122,13 @@ function () {
     return Math.ceil(d);
   }
   // get the datetime attribute, jQuery and DOM
-  function getDateAttr(node) {
+  function getDateStartAttr(node) {
     if(node.dataset.timeago) return node.dataset.timeago; // data-timeago supported
-    return getAttr(node, ATTR_DATETIME);
+    return getAttr(node, ATTR_STARTTIME);
+  }
+  function getDateEndAttr(node) {
+    if(node.dataset.timeago) return node.dataset.timeago; // data-timeago supported
+    return getAttr(node, ATTR_ENDTIME);
   }
   function getAttr(node, name) {
     if(node.getAttribute) return node.getAttribute(name); // native
@@ -133,15 +161,15 @@ function () {
     // this.nextInterval = nextInterval;
   }
   // what the timer will do
-  Timeago.prototype.doRender = function(node, date, locale) {
-    var diff = diffSec(date, this.nowDate),
+  Timeago.prototype.doRender = function(node, startdate,enddate, locale) {
+    var diff = diffSec(startdate,enddate, this.nowDate),
       self = this,
       tid;
     // delete previously assigned timeout's id to node
     node.innerHTML = formatDiff(diff, locale, this.defaultLocale);
     // waiting %s seconds, do the next render
     timers[tid = setTimeout(function() {
-      self.doRender(node, date, locale);
+      self.doRender(node, startdate,enddate, locale);
       delete timers[tid];
     }, Math.min(nextInterval(diff) * 1000, 0x7FFFFFFF))] = 0; // there is no need to save node in object.
     // set attribute date-tid
@@ -158,8 +186,8 @@ function () {
    * timeago.format('2016-09-10', 'fr'); // formated date string
    * timeago.format(1473473400269); // timestamp with ms
   **/
-  Timeago.prototype.format = function(date, locale) {
-    return formatDiff(diffSec(date, this.nowDate), locale, this.defaultLocale);
+  Timeago.prototype.format = function(startdate,enddate, locale) {
+    return formatDiff(diffSec(startdate,enddate, this.nowDate), locale, this.defaultLocale);
   };
   /**
    * render: render the DOM real-time.
@@ -178,7 +206,7 @@ function () {
   Timeago.prototype.render = function(nodes, locale) {
     if (nodes.length === undefined) nodes = [nodes];
     for (var i = 0, len = nodes.length; i < len; i++) {
-      this.doRender(nodes[i], getDateAttr(nodes[i]), locale); // render item
+      this.doRender(nodes[i], getDateStartAttr(nodes[i]),getDateEndAttr(nodes[i]), locale); // render item
     }
   };
   /**
